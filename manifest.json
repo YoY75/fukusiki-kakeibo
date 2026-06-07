@@ -1,0 +1,19 @@
+{
+  "name": "家計簿 – 複式簿記",
+  "short_name": "家計簿",
+  "description": "複式簿記対応のスマホ家計簿アプリ",
+  "start_url": "./家計簿アプリ.html",
+  "display": "standalone",
+  "background_color": "#0f1117",
+  "theme_color": "#0f1117",
+  "orientation": "portrait",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='100' fill='%230f1117'/%3E%3Ctext x='256' y='340' font-size='300' text-anchor='middle'%3E📒%3C/text%3E%3C/svg%3E",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
