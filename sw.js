@@ -1,7 +1,7 @@
 // Service Worker for 家計簿アプリ
 const CACHE = 'kakeibo-v1';
 const ASSETS = [
-  './家計簿アプリ.html',
+  './fukusiki-kakeibo.html',
   './manifest.json'
 ];
 
