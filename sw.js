@@ -1,4 +1,4 @@
-const CACHE = 'kakeibo-v2';
+const CACHE = 'kakeibo-v3';
 const ASSETS = ['./kakeibo-2.html','./manifest.json'];
 
 self.addEventListener('install', e => {
