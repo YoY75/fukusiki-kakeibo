@@ -1,5 +1,5 @@
-const CACHE = 'kakeibo-v3';
-const ASSETS = ['./kakeibo-2.html','./manifest.json'];
+const CACHE = 'kakeibo';
+const ASSETS = ['./kakeibo.html','./manifest.json'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));
