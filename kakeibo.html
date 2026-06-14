@@ -303,7 +303,8 @@ canvas.bar-chart{width:100%;display:block}
 
 /* ── Settings edit / reorder ─────────────── */
 .reg-item{position:relative;transition:opacity .15s}
-.reg-item.dragging{opacity:.4}
+.reg-item.dragging{opacity:.35;pointer-events:none}
+.drag-over-highlight{border-top:2px solid var(--accent)!important}
 .drag-handle{font-size:18px;color:var(--text3);cursor:grab;padding:0 4px;flex-shrink:0;user-select:none;touch-action:none}
 .drag-handle:active{cursor:grabbing;color:var(--accent)}
 .reg-item-edit-form{background:var(--bg);border-radius:var(--radius-sm);border:1px dashed var(--accent);padding:12px;margin-top:6px}
@@ -1256,8 +1257,8 @@ function entryHTML(e, showEdit=false){
       <div class="entry-amount ${col}">${sign}${fmt(e.amount)}</div>
       <div class="entry-date">${e.date.slice(5).replace('-','/')}</div>
       <div style="display:flex;gap:4px;margin-top:4px;justify-content:flex-end">
-        <button class="btn-sm" style="padding:3px 8px;font-size:10px" onclick="toggleInlineEdit(${e.id})">✏️</button>
-        <button class="btn-sm btn-danger" style="padding:3px 8px;font-size:10px" onclick="deleteEntry(${e.id})">🗑</button>
+        <button class="btn-sm" style="padding:3px 8px;font-size:10px" onclick="toggleInlineEdit(this.dataset.id)" data-id="${e.id}">✏️</button>
+        <button class="btn-sm btn-danger" style="padding:3px 8px;font-size:10px" onclick="deleteEntry(this.dataset.id)" data-id="${e.id}">🗑</button>
       </div>
     </div>
     ${editBlock ? `<div style="width:100%;margin-top:8px">${editBlock}</div>` : ''}
@@ -1267,7 +1268,7 @@ function entryHTML(e, showEdit=false){
 // ── Inline edit (used in summary + journal) ──────────────────
 let inlineEditId = null;
 
-function toggleInlineEdit(id) {
+function toggleInlineEdit(id) { id=typeof id==='string'?parseInt(id):id;
   inlineEditId = (inlineEditId === id) ? null : id;
   // Re-render all contexts that show entries
   rerenderEntryViews();
@@ -1332,7 +1333,7 @@ function buildInlineEditForm(e) {
     </div>
     <div class="edit-form-row">
       <button class="btn-sm" onclick="cancelInlineEdit(event)">キャンセル</button>
-      <button class="btn-sm btn-add" onclick="saveInlineEdit(${e.id},event)">💾 保存</button>
+      <button class="btn-sm btn-add" onclick="saveInlineEdit(this.dataset.id,event)" data-id="${e.id}">💾 保存</button>
     </div>
   </div>`;
 }
@@ -1343,7 +1344,7 @@ function cancelInlineEdit(ev) {
   rerenderEntryViews();
 }
 
-function saveInlineEdit(id, ev) {
+function saveInlineEdit(id, ev) { id=typeof id==='string'?parseInt(id):id;
   ev.stopPropagation();
   const e = entries.find(x=>x.id===id);
   if (!e) return;
@@ -1369,7 +1370,7 @@ function renderJournal(){
   document.getElementById('journalList').innerHTML=filtered.length?filtered.map(e=>entryHTML(e,true)).join(''):'<div class="empty-state"><div class="empty-icon">📭</div><p>取引がありません</p></div>';
 }
 function setFilter(f,el){journalFilter=f;document.querySelectorAll('.filter-chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');renderJournal();}
-function deleteEntry(id){
+function deleteEntry(id){ id=typeof id==='string'?parseInt(id):id;
   if(!confirm('この取引を削除しますか？'))return;
   if(inlineEditId===id) inlineEditId=null;
   entries=entries.filter(e=>e.id!==id);
@@ -1396,7 +1397,7 @@ function renderStats(){
   const catMap={};ym.filter(e=>e.type==='exp').forEach(e=>{catMap[e.debit]=(catMap[e.debit]||0)+e.amount;});
   const sorted=Object.entries(catMap).sort((a,b)=>b[1]-a[1]);const maxVal=sorted[0]?.[1]||1;
   document.getElementById('statsCatList').innerHTML=sorted.length?sorted.map(([cat,val])=>`
-    <div class="cat-item" onclick="openDrill('${cat.replace(/'/g,"\\'")}','exp')" style="cursor:pointer">
+    <div class="cat-item" onclick="openDrill(this.dataset.cat,'exp')" data-cat="${cat}" style="cursor:pointer">
       <div class="cat-icon" style="background:${acctColor(cat)}22">${acctIcon(cat)}</div>
       <div class="cat-info"><div class="cat-name">${cat}</div>
         <div class="cat-bar-wrap"><div class="cat-bar" style="width:${val/maxVal*100}%;background:${acctColor(cat)}"></div></div>
@@ -1425,18 +1426,46 @@ function renderAcctNode(node,depth){
   const typeTxt=depth===0?` <span style="font-size:9px;color:var(--text3)">${TYPE[node.type]||''}</span>`:'';
   const ico=node.icon||'　';
   const depthClass=depth>0?` depth-${depth}`:'';
-  const childHTML=hasChildren?`<div class="acct-children-wrap" id="ch-${node.id}">${node.children.map(c=>renderAcctNode(c,depth+1)).join('')}</div>`:'';
-  const toggleBtn=hasChildren?`<span class="acct-toggle" onclick="toggleAcctChildren('${node.id}',this)">▶</span>`:`<span style="width:16px;display:inline-block"></span>`;
-  return `<div class="acct-node">
+  const editKey='acct:'+node.id;
+  const editing=settingEditId===editKey;
+  const typeOpts=['exp','inc','asset'].map(t=>`<option value="${t}" ${node.type===t?'selected':''}>${{exp:'支出',inc:'収入',asset:'資産'}[t]}</option>`).join('');
+
+  // Edit form: root shows name+icon+type, children show only name
+  const editForm=editing?`
+    <div class="reg-item-edit-form" onclick="event.stopPropagation()">
+      <div class="field"><label class="field-label" style="font-size:9px">科目名</label>
+        <input class="edit-inline" id="ea_name_${node.id}" value="${esc(node.name)}"></div>
+      ${depth===0?`
+      <div class="field"><label class="field-label" style="font-size:9px">アイコン</label>
+        <input class="edit-inline" id="ea_icon_${node.id}" value="${esc(node.icon||'')}" maxlength="2" style="width:60px"></div>
+      <div class="field"><label class="field-label" style="font-size:9px">種別</label>
+        <select class="edit-inline edit-inline-sel" id="ea_type_${node.id}">${typeOpts}</select></div>`:''}
+      <div class="reg-edit-row">
+        <button class="btn-sm" onclick="closeSettingEdit()">キャンセル</button>
+        <button class="btn-sm btn-add" onclick="updateAcctNode(this.dataset.id)" data-id="${node.id}">💾 保存</button>
+      </div>
+    </div>` : '';
+
+  const childHTML=hasChildren
+    ?`<div class="acct-children-wrap" id="ch-${node.id}">${node.children.map(c=>renderAcctNode(c,depth+1)).join('')}</div>`
+    :'';
+  const toggleBtn=hasChildren
+    ?`<span class="acct-toggle" onclick="toggleAcctChildren(this.dataset.id,this)" data-id="${node.id}">▶</span>`
+    :`<span style="width:16px;display:inline-block"></span>`;
+
+  return `<div class="acct-node" id="ri_acct_${node.id}" ${depth===0?'draggable="true"':''}>
     <div class="acct-row${depthClass}">
+      ${depth===0?'<div class="drag-handle" style="font-size:16px;cursor:grab">⠿</div>':'<span style="width:20px;display:inline-block"></span>'}
       ${toggleBtn}
       <span class="acct-ico">${ico}</span>
-      <div class="acct-label"><div class="acct-label-name">${node.name}${typeTxt}</div>${depth>0?'':''}</div>
+      <div class="acct-label"><div class="acct-label-name">${node.name}${typeTxt}</div></div>
       <div class="acct-actions">
-        <button class="btn-sm btn-add" style="padding:3px 8px;font-size:10px" onclick="openAcctForm('${node.id}')">＋</button>
-        <button class="btn-sm btn-danger" style="padding:3px 8px;font-size:10px" onclick="deleteAcctNode('${node.id}')">削除</button>
+        <button class="btn-sm" style="padding:3px 7px;font-size:10px" onclick="toggleSettingEdit(this.dataset.key)" data-key="${editKey}">✏️</button>
+        <button class="btn-sm btn-add" style="padding:3px 7px;font-size:10px" onclick="openAcctForm(this.dataset.id)" data-id="${node.id}">＋</button>
+        <button class="btn-sm btn-danger" style="padding:3px 7px;font-size:10px" onclick="deleteAcctNode(this.dataset.id)" data-id="${node.id}">🗑</button>
       </div>
     </div>
+    ${editForm}
     ${childHTML}
   </div>`;
 }
@@ -1676,7 +1705,7 @@ function renderBalancesPage(){
           <span>今月の出金<b class="neg">-${fmt(exp)}</b></span>
           <span>初期残高<b>${fmt(b.initialBalance||0)}</b></span>
         </div>
-        <button class="bbc-adjust-btn" onclick="openAdjustForm('${b.id}')">🔧 残高を調整する</button>
+        <button class="bbc-adjust-btn" onclick="openAdjustForm(this.dataset.id)" data-id="${b.id}">🔧 残高を調整する</button>
       </div>`;
     }).join('');
   }
@@ -1691,13 +1720,13 @@ function buildBalSelectors(){
   const bs = document.getElementById('bankSelector');
   if(bs){
     bs.innerHTML = `<button class="bal-sel-btn ${bankChartSel==='all'?'active':''}" onclick="setBankSel('all')">合計</button>`
-      + banks.map(b=>`<button class="bal-sel-btn ${bankChartSel===b.id?'active':''}" onclick="setBankSel('${b.id}')">${b.name}</button>`).join('');
+      + banks.map(b=>`<button class="bal-sel-btn ${bankChartSel===b.id?'active':''}" onclick="setBankSel(this.dataset.id)" data-id="${b.id}">${b.name}</button>`).join('');
   }
   // Securities
   const ss = document.getElementById('secSelector');
   if(ss){
     ss.innerHTML = `<button class="bal-sel-btn ${secChartSel==='all'?'sec-active':''}" onclick="setSecSel('all')">合計</button>`
-      + securities.map(s=>`<button class="bal-sel-btn ${secChartSel===s.id?'sec-active':''}" onclick="setSecSel('${s.id}')">${s.name}</button>`).join('');
+      + securities.map(s=>`<button class="bal-sel-btn ${secChartSel===s.id?'sec-active':''}" onclick="setSecSel(this.dataset.id)" data-id="${s.id}">${s.name}</button>`).join('');
   }
 }
 
@@ -2120,8 +2149,8 @@ function renderInvestPage(){
         <span>今月配当<b class="pos">${fmt(div)}</b></span>
       </div>
       <div class="ic-actions">
-        <button class="ic-btn ic-btn-val" onclick="openInvestValForm('${s.id}')">📊 評価額を更新</button>
-        <button class="ic-btn ic-btn-tx" onclick="openInvestTxForm('${s.id}')">💸 取引を記帳</button>
+        <button class="ic-btn ic-btn-val" onclick="openInvestValForm(this.dataset.id)" data-id="${s.id}">📊 評価額を更新</button>
+        <button class="ic-btn ic-btn-tx" onclick="openInvestTxForm(this.dataset.id)" data-id="${s.id}">💸 取引を記帳</button>
       </div>
     </div>`;
   }).join('');
@@ -2366,14 +2395,14 @@ function renderReceiptItems() {
       <div class="receipt-item-row1">
         <input class="receipt-item-name" id="name_${item.id}"
           placeholder="品目名（例: 牛乳）" value="${escHtml(item.name)}"
-          oninput="onReceiptItemChange('${item.id}','name',this.value)">
-        <button class="receipt-item-del" onclick="removeReceiptItem('${item.id}')">✕</button>
+          oninput="onReceiptItemChange(this.dataset.id,'name',this.value)" data-id="${item.id}">
+        <button class="receipt-item-del" onclick="removeReceiptItem(this.dataset.id)" data-id="${item.id}">✕</button>
       </div>
       <div class="receipt-item-row2">
         <div class="receipt-item-cascade" id="cascade_${item.id}"></div>
         <input class="receipt-item-amt" id="amt_${item.id}" type="number"
           placeholder="0" inputmode="numeric" value="${item.amount||''}"
-          oninput="onReceiptItemChange('${item.id}','amount',this.value)">
+          oninput="onReceiptItemChange(this.dataset.id,'amount',this.value)" data-id="${item.id}">
       </div>
     </div>`).join('');
   // Build cascade selects for each item after DOM is ready
@@ -2710,7 +2739,7 @@ function renderStatsSummary() {
         </div>`;
       }).join('');
 
-      return `<div class="cat-item" onclick="openDrill('${cat.replace(/'/g,"\\'")}','exp')" style="cursor:pointer;flex-wrap:wrap;padding-bottom:0">
+      return `<div class="cat-item" onclick="openDrill(this.dataset.cat,'exp')" data-cat="${cat}" style="cursor:pointer;flex-wrap:wrap;padding-bottom:0">
         <div style="display:flex;align-items:center;gap:10px;width:100%;padding-bottom:9px">
           <div class="cat-icon" style="background:${color}22">${icon}</div>
           <div class="cat-info"><div class="cat-name">${cat}</div>
@@ -3081,8 +3110,8 @@ function renderDrillList() {
         <div class="drill-entry-amount">-${fmt(e.amount)}</div>
         <div class="drill-entry-date">${e.date}</div>
         <div class="drill-entry-actions">
-          <button class="btn-sm" style="padding:3px 8px;font-size:10px" onclick="startEdit(${e.id},event)">✏️ 編集</button>
-          <button class="btn-sm btn-danger" style="padding:3px 8px;font-size:10px" onclick="deleteFromDrill(${e.id},event)">🗑</button>
+          <button class="btn-sm" style="padding:3px 8px;font-size:10px" onclick="startEdit(this.dataset.id,event)" data-id="${e.id}">✏️ 編集</button>
+          <button class="btn-sm btn-danger" style="padding:3px 8px;font-size:10px" onclick="deleteFromDrill(this.dataset.id,event)" data-id="${e.id}">🗑</button>
         </div>
       </div>
     </div>`;
@@ -3093,7 +3122,7 @@ function escHtmlDrill(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt
 
 function toggleEditForm(id, e) { e.stopPropagation(); }
 
-function startEdit(id, ev) {
+function startEdit(id, ev) { id=typeof id==='string'?parseInt(id):id;
   ev.stopPropagation();
   editingEntryId = (editingEntryId === id) ? null : id;
   renderDrillList();
@@ -3129,7 +3158,7 @@ function buildEditForm(e) {
     </div>
     <div class="edit-form-row">
       <button class="btn-sm" onclick="cancelEdit(event)">キャンセル</button>
-      <button class="btn-sm btn-add" onclick="saveEdit(${e.id},event)">💾 保存</button>
+      <button class="btn-sm btn-add" onclick="saveEdit(this.dataset.id,event)" data-id="${e.id}">💾 保存</button>
     </div>
   </div>`;
 }
@@ -3140,7 +3169,7 @@ function cancelEdit(ev) {
   renderDrillList();
 }
 
-function saveEdit(id, ev) {
+function saveEdit(id, ev) { id=typeof id==='string'?parseInt(id):id;
   ev.stopPropagation();
   const e = entries.find(x => x.id === id);
   if (!e) return;
@@ -3162,7 +3191,7 @@ function saveEdit(id, ev) {
   showToast('✅ 保存しました');
 }
 
-function deleteFromDrill(id, ev) {
+function deleteFromDrill(id, ev) { id=typeof id==='string'?parseInt(id):id;
   ev.stopPropagation();
   if (!confirm('この取引を削除しますか？')) return;
   entries = entries.filter(e => e.id !== id);
@@ -3181,53 +3210,148 @@ let settingEditId = null;   // currently open edit form: "section:id"
 function closeSettingEdit(){ settingEditId=null; renderSettings(); }
 
 // ── Drag-to-reorder (touch + mouse) ──────
-let dragSrc=null, dragList=null, dragSaveFn=null;
+// Key fix: use data-id attribute to map DOM→array index reliably,
+// independent of whether edit forms are expanded.
+let dragState = null; // {list, saveFn, srcId, ghostEl}
 
 function initDrag(el, list, saveFn){
-  el.addEventListener('dragstart', e=>{ dragSrc=el; dragList=list; dragSaveFn=saveFn; e.dataTransfer.effectAllowed='move'; el.classList.add('dragging'); });
-  el.addEventListener('dragend',   ()=>{ el.classList.remove('dragging'); });
-  el.addEventListener('dragover',  e=>{ e.preventDefault(); e.dataTransfer.dropEffect='move'; });
-  el.addEventListener('drop',      e=>{
-    e.preventDefault();
-    if(!dragSrc||dragSrc===el) return;
-    const kids=[...el.parentElement.children];
-    const srcIdx=kids.indexOf(dragSrc), dstIdx=kids.indexOf(el);
-    if(srcIdx<0||dstIdx<0) return;
-    const item=dragList.splice(srcIdx,1)[0];
-    dragList.splice(dstIdx,0,item);
-    dragSaveFn();
-    renderSettings();
+  const itemId = el.id; // e.g. "ri_bank_bk1"
+
+  // ── Mouse / Desktop drag ──────────────────
+  el.setAttribute('draggable','true');
+
+  el.addEventListener('dragstart', e=>{
+    dragState = {list, saveFn, srcId:itemId};
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', itemId);
+    setTimeout(()=>el.classList.add('dragging'), 0);
   });
-  // Touch support
-  let touchStartY=0, touchItem=null;
-  el.addEventListener('touchstart', e=>{ touchStartY=e.touches[0].clientY; touchItem=el; }, {passive:true});
-  el.addEventListener('touchmove',  e=>{
-    if(!touchItem) return;
-    const dy=e.touches[0].clientY-touchStartY;
-    touchItem.style.transform=`translateY(${dy}px)`;
-    touchItem.style.zIndex=10;
+
+  el.addEventListener('dragend', ()=>{
+    el.classList.remove('dragging');
+    document.querySelectorAll('.drag-over-highlight').forEach(x=>{
+      x.classList.remove('drag-over-highlight');
+      x.style.borderTop='';
+    });
+    dragState = null;
+  });
+
+  el.addEventListener('dragover', e=>{
+    e.preventDefault();
+    e.dataTransfer.dropEffect='move';
+    if(!dragState||dragState.srcId===itemId) return;
+    // Visual indicator
+    document.querySelectorAll('.drag-over-highlight').forEach(x=>{
+      x.classList.remove('drag-over-highlight');
+      x.style.borderTop='';
+    });
+    el.style.borderTop='2px solid var(--accent)';
+    el.classList.add('drag-over-highlight');
+  });
+
+  el.addEventListener('dragleave', ()=>{
+    el.classList.remove('drag-over-highlight');
+    el.style.borderTop='';
+  });
+
+  el.addEventListener('drop', e=>{
+    e.preventDefault();
+    el.classList.remove('drag-over-highlight');
+    el.style.borderTop='';
+    if(!dragState||dragState.srcId===itemId) return;
+    reorderById(dragState.list, dragState.saveFn, dragState.srcId, itemId);
+  });
+
+  // ── Touch / Mobile ────────────────────────
+  let touchStartY=0, touchCurY=0, ghost=null, ghostOffset=0;
+
+  el.addEventListener('touchstart', e=>{
+    if(!e.target.classList.contains('drag-handle')) return;
+    touchStartY = e.touches[0].clientY;
+    touchCurY   = touchStartY;
+    dragState   = {list, saveFn, srcId:itemId};
+
+    // Clone element as ghost
+    ghost = el.cloneNode(true);
+    const r = el.getBoundingClientRect();
+    ghostOffset = touchStartY - r.top;
+    Object.assign(ghost.style, {
+      position:'fixed', left:r.left+'px', top:(touchStartY-ghostOffset)+'px',
+      width:r.width+'px', opacity:'0.85', zIndex:500,
+      pointerEvents:'none', background:'var(--surface)',
+      borderRadius:'var(--radius-sm)', boxShadow:'0 8px 24px rgba(0,0,0,.4)',
+      transform:'scale(1.02)'
+    });
+    document.body.appendChild(ghost);
+    el.classList.add('dragging');
     e.preventDefault();
   }, {passive:false});
-  el.addEventListener('touchend', e=>{
-    if(!touchItem) return;
-    touchItem.style.transform=''; touchItem.style.zIndex='';
-    // Find drop target by position
-    const rect=touchItem.getBoundingClientRect();
-    const centerY=rect.top+rect.height/2;
-    const siblings=[...touchItem.parentElement.children].filter(x=>x!==touchItem);
-    let dropTarget=null, minDist=Infinity;
-    siblings.forEach(s=>{ const sr=s.getBoundingClientRect(), dist=Math.abs(sr.top+sr.height/2-centerY); if(dist<minDist){minDist=dist;dropTarget=s;} });
-    if(dropTarget){
-      const kids=[...touchItem.parentElement.children];
-      const srcIdx=kids.indexOf(touchItem), dstIdx=kids.indexOf(dropTarget);
-      if(srcIdx!==dstIdx&&srcIdx>=0&&dstIdx>=0){
-        const item=dragList.splice(srcIdx,1)[0];
-        dragList.splice(dstIdx,0,item);
-        dragSaveFn(); renderSettings();
-      }
+
+  el.addEventListener('touchmove', e=>{
+    if(!dragState||!ghost) return;
+    touchCurY = e.touches[0].clientY;
+    ghost.style.top = (touchCurY - ghostOffset) + 'px';
+
+    // Highlight drop target
+    ghost.style.display='none';
+    const under = document.elementFromPoint(e.touches[0].clientX, touchCurY);
+    ghost.style.display='';
+    const targetEl = under ? under.closest('.reg-item, .acct-node') : null;
+    document.querySelectorAll('.drag-over-highlight').forEach(x=>{
+      x.classList.remove('drag-over-highlight'); x.style.borderTop='';
+    });
+    if(targetEl && targetEl.id !== itemId){
+      targetEl.style.borderTop='2px solid var(--accent)';
+      targetEl.classList.add('drag-over-highlight');
     }
-    touchItem=null;
+    e.preventDefault();
+  }, {passive:false});
+
+  el.addEventListener('touchend', e=>{
+    if(!dragState||!ghost) return;
+    // Find drop target
+    ghost.style.display='none';
+    const under = document.elementFromPoint(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+    ghost.style.display='';
+    const targetEl = under ? under.closest('.reg-item, .acct-node') : null;
+
+    // Cleanup visuals
+    ghost.remove(); ghost=null;
+    el.classList.remove('dragging');
+    document.querySelectorAll('.drag-over-highlight').forEach(x=>{
+      x.classList.remove('drag-over-highlight'); x.style.borderTop='';
+    });
+
+    if(targetEl && targetEl.id && targetEl.id !== itemId){
+      reorderById(dragState.list, dragState.saveFn, itemId, targetEl.id);
+    }
+    dragState=null;
   });
+}
+
+// Reorder list by element DOM ids.
+// Ids are like "ri_bank_bk1" — the data item's .id is the last segment.
+function reorderById(list, saveFn, srcDomId, dstDomId){
+  // Extract data id from DOM id (last "_"-separated segment may contain "_")
+  // Strategy: strip known prefixes
+  const extractDataId = domId => {
+    // prefixes: ri_bank_, ri_card_, ri_pp_, ri_sec_, ri_acct_
+    const m = domId.match(/^ri_(?:bank|card|pp|sec|acct)_(.+)$/);
+    return m ? m[1] : null;
+  };
+  const srcDataId = extractDataId(srcDomId);
+  const dstDataId = extractDataId(dstDomId);
+  if(!srcDataId||!dstDataId||srcDataId===dstDataId) return;
+
+  const srcIdx = list.findIndex(x=>x.id===srcDataId);
+  const dstIdx = list.findIndex(x=>x.id===dstDataId);
+  if(srcIdx<0||dstIdx<0) return;
+
+  const [item] = list.splice(srcIdx,1);
+  list.splice(dstIdx,0,item);
+  saveFn();
+  renderSettings();
+  showToast('↕️ 並び替えました');
 }
 
 // ── BANK edit + reorder ───────────────────
@@ -3250,7 +3374,7 @@ function renderBankList(){
         </div>
         <div class="reg-edit-row">
           <button class="btn-sm" onclick="closeSettingEdit()">キャンセル</button>
-          <button class="btn-sm btn-add" onclick="updateBank('${b.id}')">💾 保存</button>
+          <button class="btn-sm btn-add" onclick="updateBank(this.dataset.id)" data-id="${b.id}">💾 保存</button>
         </div>
       </div>` : '';
     return `<div class="reg-item" draggable="true" id="ri_bank_${b.id}">
@@ -3258,8 +3382,8 @@ function renderBankList(){
       <div class="reg-item-icon">🏦</div>
       <div class="reg-item-body"><div class="reg-item-name">${b.name}</div><div class="reg-item-sub">${b.bank} / ${b.type}</div></div>
       <div class="reg-item-actions">
-        <button class="btn-sm" style="padding:4px 8px;font-size:10px" onclick="toggleSettingEdit('bank:${b.id}')">✏️</button>
-        <button class="btn-sm btn-danger" style="padding:4px 8px;font-size:10px" onclick="deleteBank('${b.id}')">🗑</button>
+        <button class="btn-sm" style="padding:4px 8px;font-size:10px" onclick="toggleSettingEdit(this.dataset.key)" data-key="bank:${b.id}">✏️</button>
+        <button class="btn-sm btn-danger" style="padding:4px 8px;font-size:10px" onclick="deleteBank(this.dataset.id)" data-id="${b.id}">🗑</button>
       </div>
       ${editForm}
     </div>`;
@@ -3303,7 +3427,7 @@ function renderCardList(){
           <select class="edit-inline edit-inline-sel" id="ec_day_${c.id}">${dayOpts}</select></div>
         <div class="reg-edit-row">
           <button class="btn-sm" onclick="closeSettingEdit()">キャンセル</button>
-          <button class="btn-sm btn-add" onclick="updateCard('${c.id}')">💾 保存</button>
+          <button class="btn-sm btn-add" onclick="updateCard(this.dataset.id)" data-id="${c.id}">💾 保存</button>
         </div>
       </div>` : '';
     return `<div class="reg-item" draggable="true" id="ri_card_${c.id}">
@@ -3314,8 +3438,8 @@ function renderCardList(){
         <div class="reg-item-sub">引落: ${bank?bank.name:'未設定'}${c.billDay?' / 毎月'+c.billDay+'日':''}</div>
       </div>
       <div class="reg-item-actions">
-        <button class="btn-sm" style="padding:4px 8px;font-size:10px" onclick="toggleSettingEdit('card:${c.id}')">✏️</button>
-        <button class="btn-sm btn-danger" style="padding:4px 8px;font-size:10px" onclick="deleteCard('${c.id}')">🗑</button>
+        <button class="btn-sm" style="padding:4px 8px;font-size:10px" onclick="toggleSettingEdit(this.dataset.key)" data-key="card:${c.id}">✏️</button>
+        <button class="btn-sm btn-danger" style="padding:4px 8px;font-size:10px" onclick="deleteCard(this.dataset.id)" data-id="${c.id}">🗑</button>
       </div>
       ${editForm}
     </div>`;
@@ -3355,7 +3479,7 @@ function renderPrepaidList(){
           <input class="edit-inline" type="number" id="ep_bal_${p.id}" value="${p.initialBalance||0}" inputmode="numeric"></div>
         <div class="reg-edit-row">
           <button class="btn-sm" onclick="closeSettingEdit()">キャンセル</button>
-          <button class="btn-sm btn-add" onclick="updatePrepaid('${p.id}')">💾 保存</button>
+          <button class="btn-sm btn-add" onclick="updatePrepaid(this.dataset.id)" data-id="${p.id}">💾 保存</button>
         </div>
       </div>` : '';
     return `<div class="reg-item" draggable="true" id="ri_pp_${p.id}">
@@ -3366,8 +3490,8 @@ function renderPrepaidList(){
         <div class="reg-item-sub">${PP_TYPE_LABEL[p.ppType]||'電子マネー'}${bank?' / '+bank.name:''} / 残高: ${fmt(calcPrepaidBalance(p.id))}</div>
       </div>
       <div class="reg-item-actions">
-        <button class="btn-sm" style="padding:4px 8px;font-size:10px" onclick="toggleSettingEdit('pp:${p.id}')">✏️</button>
-        <button class="btn-sm btn-danger" style="padding:4px 8px;font-size:10px" onclick="deletePrepaid('${p.id}')">🗑</button>
+        <button class="btn-sm" style="padding:4px 8px;font-size:10px" onclick="toggleSettingEdit(this.dataset.key)" data-key="pp:${p.id}">✏️</button>
+        <button class="btn-sm btn-danger" style="padding:4px 8px;font-size:10px" onclick="deletePrepaid(this.dataset.id)" data-id="${p.id}">🗑</button>
       </div>
       ${editForm}
     </div>`;
@@ -3406,7 +3530,7 @@ function renderSecList(){
           <input class="edit-inline" id="es_note_${s.id}" value="${esc(s.note||'')}"></div>
         <div class="reg-edit-row">
           <button class="btn-sm" onclick="closeSettingEdit()">キャンセル</button>
-          <button class="btn-sm btn-add" onclick="updateSec('${s.id}')">💾 保存</button>
+          <button class="btn-sm btn-add" onclick="updateSec(this.dataset.id)" data-id="${s.id}">💾 保存</button>
         </div>
       </div>` : '';
     return `<div class="reg-item" draggable="true" id="ri_sec_${s.id}">
@@ -3417,8 +3541,8 @@ function renderSecList(){
         <div class="reg-item-sub">${s.company||''}${bank?' / '+bank.name:''}${s.note?' / '+s.note:''}</div>
       </div>
       <div class="reg-item-actions">
-        <button class="btn-sm" style="padding:4px 8px;font-size:10px" onclick="toggleSettingEdit('sec:${s.id}')">✏️</button>
-        <button class="btn-sm btn-danger" style="padding:4px 8px;font-size:10px" onclick="deleteSec('${s.id}')">🗑</button>
+        <button class="btn-sm" style="padding:4px 8px;font-size:10px" onclick="toggleSettingEdit(this.dataset.key)" data-key="sec:${s.id}">✏️</button>
+        <button class="btn-sm btn-danger" style="padding:4px 8px;font-size:10px" onclick="deleteSec(this.dataset.id)" data-id="${s.id}">🗑</button>
       </div>
       ${editForm}
     </div>`;
@@ -3438,51 +3562,7 @@ function updateSec(id){
 }
 
 // ── ACCOUNT TREE node edit ────────────────
-function renderAcctNode(node,depth){
-  const hasChildren=node.children&&node.children.length>0;
-  const TYPE={exp:'支出',inc:'収入',asset:'資産'};
-  const typeTxt=depth===0?` <span style="font-size:9px;color:var(--text3)">${TYPE[node.type]||''}</span>`:'';
-  const ico=node.icon||'　';
-  const depthClass=depth>0?` depth-${depth}`:'';
-  const editKey='acct:'+node.id;
-  const editing=settingEditId===editKey;
-  const typeOpts=['exp','inc','asset'].map(t=>`<option value="${t}" ${node.type===t?'selected':''}>${{exp:'支出',inc:'収入',asset:'資産'}[t]}</option>`).join('');
-  const editForm=editing&&depth===0?`
-    <div class="reg-item-edit-form" onclick="event.stopPropagation()" style="margin:6px 0 0">
-      <div class="field"><label class="field-label" style="font-size:9px">科目名</label><input class="edit-inline" id="ea_name_${node.id}" value="${esc(node.name)}"></div>
-      <div class="field"><label class="field-label" style="font-size:9px">アイコン</label><input class="edit-inline" id="ea_icon_${node.id}" value="${esc(node.icon||'')}" maxlength="2" style="width:60px"></div>
-      <div class="field"><label class="field-label" style="font-size:9px">種別</label>
-        <select class="edit-inline edit-inline-sel" id="ea_type_${node.id}">${typeOpts}</select></div>
-      <div class="reg-edit-row">
-        <button class="btn-sm" onclick="closeSettingEdit()">キャンセル</button>
-        <button class="btn-sm btn-add" onclick="updateAcctNode('${node.id}')">💾 保存</button>
-      </div>
-    </div>` : editing&&depth>0?`
-    <div class="reg-item-edit-form" onclick="event.stopPropagation()" style="margin:6px 0 0">
-      <div class="field"><label class="field-label" style="font-size:9px">科目名</label><input class="edit-inline" id="ea_name_${node.id}" value="${esc(node.name)}"></div>
-      <div class="reg-edit-row">
-        <button class="btn-sm" onclick="closeSettingEdit()">キャンセル</button>
-        <button class="btn-sm btn-add" onclick="updateAcctNode('${node.id}')">💾 保存</button>
-      </div>
-    </div>` : '';
-  const childHTML=hasChildren?`<div class="acct-children-wrap" id="ch-${node.id}">${node.children.map(c=>renderAcctNode(c,depth+1)).join('')}</div>`:'';
-  const toggleBtn=hasChildren?`<span class="acct-toggle" onclick="toggleAcctChildren('${node.id}',this)">▶</span>`:`<span style="width:16px;display:inline-block"></span>`;
-  return `<div class="acct-node" draggable="${depth===0}" id="ri_acct_${node.id}">
-    <div class="acct-row${depthClass}">
-      ${depth===0?'<div class="drag-handle" style="font-size:16px">⠿</div>':''}
-      ${toggleBtn}
-      <span class="acct-ico">${ico}</span>
-      <div class="acct-label"><div class="acct-label-name">${node.name}${typeTxt}</div></div>
-      <div class="acct-actions">
-        <button class="btn-sm" style="padding:3px 7px;font-size:10px" onclick="toggleSettingEdit('${editKey}')">✏️</button>
-        <button class="btn-sm btn-add" style="padding:3px 7px;font-size:10px" onclick="openAcctForm('${node.id}')">＋</button>
-        <button class="btn-sm btn-danger" style="padding:3px 7px;font-size:10px" onclick="deleteAcctNode('${node.id}')">🗑</button>
-      </div>
-    </div>
-    ${editForm}
-    ${childHTML}
-  </div>`;
-}
+/* renderAcctNode removed - defined above */
 
 function updateAcctNode(id){
   const node=findNode(accts,id); if(!node) return;
