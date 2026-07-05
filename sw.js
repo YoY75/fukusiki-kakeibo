@@ -1,5 +1,5 @@
 const CACHE = 'kakeibo';
-const ASSETS = ['./kakeibo-3-1.html','./manifest.json'];
+const ASSETS = ['./kakeibo-3-2.html','./manifest.json'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));
