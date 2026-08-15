@@ -2,7 +2,7 @@
   "name": "家計簿 – 複式簿記",
   "short_name": "家計簿",
   "description": "複式簿記対応のスマホ家計簿・資産管理アプリ",
-  "start_url": "./kakeibo1-1.html",
+  "start_url": "./kakeibo-1-1.html",
   "display": "standalone",
   "background_color": "#0f1117",
   "theme_color": "#0f1117",
