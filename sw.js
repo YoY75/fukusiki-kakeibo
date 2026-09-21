@@ -1,7 +1,7 @@
 // 家計簿アプリ（kakeibo-1.html）用 Service Worker
 // キャッシュを更新したいときは CACHE の値（例: kakeibo-v3）を上げてください
 const CACHE = 'kakeibo-v2';
-const ASSETS = ['./kakeibo-1.html', './manifest.json'];
+const ASSETS = ['./kakeibo-1-2.html', './manifest.json'];
 
 self.addEventListener('install', e => {
   e.waitUntil(
